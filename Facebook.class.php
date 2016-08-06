@@ -70,7 +70,7 @@ class Facebook
 		curl_setopt($ch, CURLOPT_USERAGENT,self::USER_AGENT );
 		#curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
 		#curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
-		$response = curl_exec($ch); 
+		$body = curl_exec($ch); 
 		if( !$response || curl_errno($ch) )
 		{
 			$error = curl_error($ch);
@@ -79,14 +79,13 @@ class Facebook
 		}
 		$result = array();
 		$result["http_code"] = curl_getinfo($ch,CURLINFO_HTTP_CODE);
-		$json = json_decode(substr($response,9),true);
+		$json = json_decode(substr($body,9),true);
 		if( $json != null )
-		{
-			return $json;
-		}
-		$http_code = curl_getinfo($ch,CURLINFO_HTTP_CODE);
+			$result["body"] = $json;
+		else
+			$result["body"] = $response;
 		curl_close($ch);
-		return $http_code;
+		return $result;
 	}
 	
 	/**
