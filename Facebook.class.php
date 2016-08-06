@@ -17,7 +17,7 @@ class Facebook
 	/**
 	 * Location of cookies file. 
 	 */
-	protected $cookiejar;
+	public $cookiejar;
 	
 	/**
 	 * Facebook User ID. This is populated when you login().
@@ -29,7 +29,7 @@ class Facebook
 	 * @param $cookiejar  Location of cookies file. Use a different cookiejar for each 
 	 *                    account / instance. 
 	 */
-	function __construct( string $cookiejar = null )
+	function __construct( $cookiejar = null )
 	{
 		$this->cookiejar = $cookiejar;
 	}
@@ -40,9 +40,9 @@ class Facebook
 	 * @param $post    Perform HTTP POST instead of default HTTP GET
 	 * @param $fields  Post fields for HTTP POST. This is ignored when $post is false. 
 	 */
-	private function cURL( string $url, bool $post = false, array $fields = null )
+	private function cURL( $url, $post = false, $fields = null )
 	{
-		if( $fields != null )
+		if( is_array($fields) )
 		{
 			$tmp = "";
 			foreach( $fields as $name => $value )
@@ -61,7 +61,7 @@ class Facebook
 		}
 		curl_setopt($ch, CURLOPT_HEADER, 0);
 		curl_setopt($ch, CURLOPT_FOLLOWLOCATION, 1);
-		if( !isset($this->cookiejar) )
+		if( isset($this->cookiejar) )
 		{
 			curl_setopt($ch, CURLOPT_COOKIEJAR,$this->cookiejar);
 			curl_setopt($ch, CURLOPT_COOKIEFILE,$this->cookiejar);
@@ -71,19 +71,16 @@ class Facebook
 		#curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
 		#curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
 		$body = curl_exec($ch); 
-		if( !$response || curl_errno($ch) )
+		if( !$body || curl_errno($ch) )
 		{
 			$error = curl_error($ch);
 			curl_close($ch);
-			throw new Exception(curl_error($ch));
+			throw new Exception($error);
 		}
 		$result = array();
 		$result["http_code"] = curl_getinfo($ch,CURLINFO_HTTP_CODE);
 		$json = json_decode(substr($body,9),true);
-		if( $json != null )
-			$result["body"] = $json;
-		else
-			$result["body"] = $response;
+		$result["body"] = $json != null ? $json : $body;
 		curl_close($ch);
 		return $result;
 	}
@@ -98,24 +95,30 @@ class Facebook
 			"pass"       => $password,
 			"persistent" => $remember ? "1" : "0"
 		);
+		$response = $this->cURL("https://www.facebook.com");
+		echo "Resp: " . $response["http_code"] . PHP_EOL;
+		file_put_contents("login1.html",$response["body"]);
 		$dom = new DOMDocument;
-		$dom->loadHTML($this->cURL("https://www.facebook.com"));
+		$dom->loadHTML($response["body"]);
 		$form = $dom->getElementById("login_form");
 		if( $form == null )
-			return true;
+			return true; // already logged in?
 		$action = $form->getAttribute("action");
 		$inputs = $form->getElementsByTagName("input");
+		var_dump($inputs);
 		for( $i = 0; $i < $inputs->length; $i++ )
 		{
-			$type = $inputs[$i]->getAttribute("type");
+			$type = $inputs->item($i)->getAttribute("type");
 			if( $type == "hidden" )
 			{
-				$name = $inputs[$i]->getAttribute("name");
-				$value = $inputs[$i]->getAttribute("value");
+				$name = $inputs->item($i)->getAttribute("name");
+				$value = $inputs->item($i)->getAttribute("value");
 				$postdata[$name] = $value;
 			}
 		}
-		$this->cURL($action,$postdata,true);
+		$resp = $this->cURL($action,$postdata,true);
+		echo "Resp: " . $resp["http_code"] . PHP_EOL;
+		file_put_contents("login2.html",$resp["body"]);
 	}
 	
 	/**
