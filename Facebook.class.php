@@ -17,12 +17,12 @@ class Facebook
 	/**
 	 * Location of cookies file. 
 	 */
-	public $cookiejar;
+	private $cookiejar;
 	
 	/**
 	 * Facebook User ID. This is populated when you login().
 	 */
-	protected $fbid;
+	private $fbid;
 	
 	/**
 	 * Initialize the class.
@@ -42,16 +42,16 @@ class Facebook
 	 */
 	private function cURL( $url, $post = false, $fields = null )
 	{
-		if( is_array($fields) )
-		{
-			$tmp = "";
-			foreach( $fields as $name => $value )
-			{
-				$tmp .= strlen($tmp) > 0 ? "&" : "";
-				$tmp .= $name . "=" . urlencode($value);
-			}
-			$fields = $tmp;
-		}
+		#if( is_array($fields) )
+		#{
+		#	$tmp = "";
+		#	foreach( $fields as $name => $value )
+		#	{
+		#		$tmp .= strlen($tmp) > 0 ? "&" : "";
+		#		$tmp .= $name . "=" . urlencode($value);
+		#	}
+		#	$fields = $tmp;
+		#}
 		$ch = curl_init($url);
 		if( $post == true )
 		{
@@ -68,8 +68,8 @@ class Facebook
 		}
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
 		curl_setopt($ch, CURLOPT_USERAGENT,self::USER_AGENT );
-		#curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
-		#curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, FALSE);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 2);
 		$body = curl_exec($ch); 
 		if( !$body || curl_errno($ch) )
 		{
@@ -79,46 +79,112 @@ class Facebook
 		}
 		$result = array();
 		$result["http_code"] = curl_getinfo($ch,CURLINFO_HTTP_CODE);
-		$json = json_decode(substr($body,9),true);
-		$result["body"] = $json != null ? $json : $body;
+		$json = json_decode(substr($body,9),true);	
+		$dom = new DOMDocument;
+		if( $json != null )
+		{
+			$result["type"] = "json";
+			$result["json"] = $json;
+		}
+		else if( $dom->loadHTML($body) )
+		{
+			$result["type"] = "dom";
+			$result["dom"] = $dom;
+		}	
+		else
+		{
+			$result["type"] = "text";
+			$result["text"] = $body;
+		}
 		curl_close($ch);
 		return $result;
 	}
+
+	/**
+	 * Get form info from HTML response
+	 */
+	private function getForm( $dom, $form_id )
+	{
+		#$dom = new DOMDocument;
+		#$dom->loadHTML($html);
+		$dom_form = $dom->getElementById($form_id);
+		if( $dom_form == null )
+			return null;
+		$form_data = array();
+		$form_data["action"] = $dom_form->getAttribute("action");
+		$form_data["method"] = $dom_form->getAttribute("post");
+		$form_data["inputs"] = array();
+		$inputs = $dom_form->getElementsByTagName("input");
+		for( $i = 0; $i < $inputs->length; $i++ )
+		#foreach( $dom_form->getElementsByTagName("input") as $inputs )
+		{
+			$name = $inputs->item($i)->getAttribute("name");
+			if( isset($name) && !empty($name) )
+			{
+				#$input = array();
+				#$input["name"] = $name;
+				#$input["type"] = $inputs->item($i)->getAttribute("type");
+				#$input["value"] = $inputs->item($i)->getAttribute("value");
+				#$form_data["inputs"][$input["name"]] = $input;
+				$form_data["inputs"][$name] = $inputs->item($i)->getAttribute("value");
+			}
+		}
+		return $form_data;
+	}
 	
+	/**
+	 * Determine if returned page is logged in.
+	 */
+	private function loggedin( $dom )
+	{
+		#$dom = new DOMDocument;
+		#$dom->loadHTML($html);
+		return $dom->getElementById("logoutMenu") != null;
+	}
+
 	/**
 	 * Authenticate with Facebook
 	 */
-	public function login( $username, $password, $remember = false )
+	public function login( $username, $password, $remember = false, $code = null )
 	{
-		$postdata = array(
-			"email"      => $username,
-			"pass"       => $password,
-			"persistent" => $remember ? "1" : "0"
-		);
 		$response = $this->cURL("https://www.facebook.com");
-		echo "Resp: " . $response["http_code"] . PHP_EOL;
-		file_put_contents("login1.html",$response["body"]);
-		$dom = new DOMDocument;
-		$dom->loadHTML($response["body"]);
-		$form = $dom->getElementById("login_form");
-		if( $form == null )
-			return true; // already logged in?
-		$action = $form->getAttribute("action");
-		$inputs = $form->getElementsByTagName("input");
-		var_dump($inputs);
-		for( $i = 0; $i < $inputs->length; $i++ )
+		if( isset($response["dom"]) )
 		{
-			$type = $inputs->item($i)->getAttribute("type");
-			if( $type == "hidden" )
+			$dom = $response["dom"];
+			$dom->saveHTMLFile("login1.html");
+			if( !$this->loggedIn($dom) )
 			{
-				$name = $inputs->item($i)->getAttribute("name");
-				$value = $inputs->item($i)->getAttribute("value");
-				$postdata[$name] = $value;
+				$form = $this->getForm($dom,"login_form");
+				$form["inputs"]["email"] = $username;
+				$form["inputs"]["pass"] = $password;
+				$form["inputs"]["persistent"] = $remember ? "1" : "0";
+				$response = $this->cURL($form["action"],true,$form["inputs"]);
+				if( isset($response["dom"]) )
+				{
+					$dom = $response["dom"];
+					$dom->saveHTMLFile("login2.html");
+					if( $form = $this->getForm($dom,"login_form") )
+					{
+						throw new Exception("Invalid username or password");
+					}
+					else if( $form = $this->getForm($dom,"u_0_1") )
+					{
+						// need code
+						var_dump($form);
+					}
+				}
+				else
+					throw new Exception("Invalid secondary response from server.");
 			}
+			else
+				return true;
 		}
-		$resp = $this->cURL($action,$postdata,true);
-		echo "Resp: " . $resp["http_code"] . PHP_EOL;
-		file_put_contents("login2.html",$resp["body"]);
+		else
+			throw new Exception("Invalid response from server");
+		#file_put_contents("login1.html",$response["body"]);
+		#$resp = $this->cURL($action,true,$postdata);
+		#echo "Resp: " . $resp["http_code"] . PHP_EOL;
+		#file_put_contents("login2.html",$resp["body"]);
 	}
 	
 	/**
