@@ -1,5 +1,6 @@
 *.html
 *~
+codes.txt
 config.php
 *.cookies
 cookies.txt
